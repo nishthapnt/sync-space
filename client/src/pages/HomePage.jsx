@@ -72,13 +72,7 @@ export default function HomePage() {
             </span>
           </div>
 
-          <button
-            onClick={createRoom}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm rounded-xl sm:rounded-2xl bg-white/[0.04] border border-white/10 backdrop-blur-xl hover:bg-white/[0.08] hover:border-white/20 hover:-translate-y-0.5 transition-all duration-300 active:translate-y-1 shadow-[0_10px_40px_rgba(0,0,0,0.25)]"
-          >
-            {loading ? 'Launching...' : 'Launch App'}
-          </button>
+          
         </div>
       </nav>
 
