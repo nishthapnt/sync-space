@@ -13,9 +13,15 @@ const app = express()
 const httpServer = createServer(app) // ← KEY CONCEPT below
 
 const io = new Server(httpServer, {
-  cors: { origin: 'http://localhost:5173', methods: ['GET', 'POST'] }
+  cors: { 
+    origin: [
+      'http://localhost:5173',               // Local development frontend
+      'https://sync-space-iota.vercel.app'    // Live production frontend on Vercel
+    ], 
+    methods: ['GET', 'POST'],
+    credentials: true                        // Crucial for secure cookie/session handling across domains
+  }
 })
-
 // Define allowed origins
 const allowedOrigins = [
   'http://localhost:5173',          // Local development
