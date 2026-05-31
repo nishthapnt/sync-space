@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+/* Optional but recommended: Set the global background to match your dark theme 
+   to prevent white flashes on page load. */
+@layer base {
+  body {
+    background-color: #0d0d12;
+    color: #ffffff;
+    margin: 0;
+  }
+}
