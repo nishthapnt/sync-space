@@ -50,73 +50,77 @@ export default function RoomPage() {
   }, [roomId])
 
   return (
-    <div className="h-screen w-screen bg-zinc-950 text-white p-4 flex flex-col overflow-hidden box-border">
+    // FIXED: Removed absolute padding wrapper parameters completely to eliminate dead edges
+    <div className="h-screen w-screen bg-zinc-950 text-white flex flex-col overflow-hidden box-border">
       
-      {/* Top Header & Navigation Bar Container */}
-      {/* FIXED: Keeps header on the left, buttons in a horizontal row on the right */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4 flex-shrink-0">
+      {/* COMPACT FLOATING CONTROL HEADERBAR */}
+      <div className="flex items-center justify-between gap-3 px-3 py-2 sm:px-4 sm:py-3 border-b border-zinc-900 bg-zinc-950/80 backdrop-blur-md flex-shrink-0">
         
-        {/* Left Side: Header Text */}
-        <div>
-          <h1 className="text-2xl font-bold md:text-3xl">
-            Room: {roomId}
+        {/* Simple Room Identifier */}
+        <div className="min-w-0">
+          <span className="text-xs font-mono text-zinc-500 block uppercase tracking-wider">Active Workspace</span>
+          <h1 className="text-sm sm:text-lg font-black truncate max-w-[140px] sm:max-w-none text-zinc-200">
+            #{roomId}
           </h1>
-          <p className="text-zinc-400 text-xs md:text-sm">
-            Realtime collaboration room
-          </p>
         </div>
 
-        {/* Right Side: Horizontal Toggle Buttons */}
-        <div className="flex gap-2 self-start sm:self-center">
+        {/* Dense Toggle Controls */}
+        <div className="flex gap-1 bg-zinc-900/60 p-1 rounded-xl border border-zinc-800/40">
           <button
             onClick={() => setActiveTab('chat')}
-            className={`px-4 py-2.5 text-sm font-medium rounded-xl transition whitespace-nowrap ${
-              activeTab === 'chat' ? 'bg-blue-600 text-white' : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
+            className={`px-3 py-1.5 text-xs sm:text-sm font-bold rounded-lg transition-all duration-200 flex items-center gap-1.5 ${
+              activeTab === 'chat' ? 'bg-blue-600 text-white shadow-md' : 'text-zinc-400 hover:text-white'
             }`}
           >
-            💬 Chat
+            <span>💬</span>
+            <span className="hidden sm:inline">Chat</span>
           </button>
 
           <button
             onClick={() => setActiveTab('canvas')}
-            className={`px-4 py-2.5 text-sm font-medium rounded-xl transition whitespace-nowrap ${
-              activeTab === 'canvas' ? 'bg-blue-600 text-white' : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
+            className={`px-3 py-1.5 text-xs sm:text-sm font-bold rounded-lg transition-all duration-200 flex items-center gap-1.5 ${
+              activeTab === 'canvas' ? 'bg-blue-600 text-white shadow-md' : 'text-zinc-400 hover:text-white'
             }`}
           >
-            🎨 Canvas
+            <span>🎨</span>
+            <span className="hidden sm:inline">Canvas</span>
           </button>
 
           <button
             onClick={() => setActiveTab('watch')}
-            className={`px-4 py-2.5 text-sm font-medium rounded-xl transition whitespace-nowrap ${
-              activeTab === 'watch' ? 'bg-blue-600 text-white' : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
+            className={`px-3 py-1.5 text-xs sm:text-sm font-bold rounded-lg transition-all duration-200 flex items-center gap-1.5 ${
+              activeTab === 'watch' ? 'bg-blue-600 text-white shadow-md' : 'text-zinc-400 hover:text-white'
             }`}
           >
-            📺 Watch
+            <span>📺</span>
+            <span className="hidden sm:inline">Watch</span>
           </button>
         </div>
 
       </div>
 
-      {/* Main Workspace Layout Wrapper — Completely maximizing full layout footprint */}
-      <div className="flex-1 min-h-0 relative bg-zinc-900 rounded-2xl border border-zinc-800 overflow-hidden">
+      {/* FIXED: True Edge-to-Edge Bleed Framework Container */}
+      <div className="flex-1 min-h-0 relative bg-zinc-950">
+        
         {activeTab === 'chat' && (
-          <div className="absolute inset-0 p-4 overflow-y-auto">
+          // Stripped interior margins out so message wrappers sit flush with side borders
+          <div className="absolute inset-0 p-0 overflow-y-auto">
             <Chat roomId={roomId} />
           </div>
         )}
 
         {activeTab === 'canvas' && (
-          <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute inset-0 overflow-hidden w-full h-full">
             <Canvas roomId={roomId} />
           </div>
         )}
 
         {activeTab === 'watch' && (
-          <div className="absolute inset-0 p-4 overflow-y-auto">
+          <div className="absolute inset-0 p-0 overflow-y-auto">
             <WatchTogether roomId={roomId} />
           </div>
         )}
+        
       </div>
 
     </div>
