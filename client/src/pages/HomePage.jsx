@@ -95,7 +95,7 @@ export default function HomePage() {
               Your shared
               <br />
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-300 to-purple-400 drop-shadow-[0_0_50px_rgba(99,102,241,0.35)]">
-                digital room.
+                digital room
               </span>
             </h1>
             <p className="text-neutral-400 text-base sm:text-lg md:text-xl max-w-2xl mx-auto lg:mx-0 leading-relaxed px-2 sm:px-0">
