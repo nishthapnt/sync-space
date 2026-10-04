@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import Message from "../models/Message.js";
 
 // In-memory global presence and state stores
@@ -5,6 +6,46 @@ import Message from "../models/Message.js";
 const roomUsers = {};
 const canvasStates = {};
 const videoStates = {};
+const roomHosts = {}; // roomId -> socket.id of the user who controls playback
+const videoQueues = {}; // roomId -> [{ id, url }]
+
+const MAX_URL_LENGTH = 2048;
+const MAX_QUEUE_LENGTH = 50;
+
+function isValidTime(t) {
+  return typeof t === "number" && Number.isFinite(t) && t >= 0;
+}
+
+function isValidUrl(u) {
+  if (typeof u !== "string" || u.length > MAX_URL_LENGTH) return false;
+  try {
+    const { protocol } = new URL(u);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+// Current state with the real time elapsed since the host last reported it added in
+function currentVideoState(roomId) {
+  const base = videoStates[roomId];
+  if (!base) return null;
+  const state = { ...base };
+  if (state.playing) state.timestamp += (Date.now() - state.lastUpdated) / 1000;
+  return state;
+}
+
+// Makes a queue item the current video for everyone in the room
+function loadItem(io, roomId, item, autoplay) {
+  videoStates[roomId] = {
+    url: item.url,
+    itemId: item.id,
+    playing: autoplay,
+    timestamp: 0,
+    lastUpdated: Date.now(),
+  };
+  io.to(roomId).emit("video:setUrl", { url: item.url, itemId: item.id, autoplay });
+}
 
 export function registerSocketHandlers(io) {
   io.on("connection", (socket) => {
@@ -30,6 +71,19 @@ export function registerSocketHandlers(io) {
 
       // Send updated user list to everyone in the room
       io.to(roomId).emit("room:users", [...roomUsers[roomId].values()]);
+
+      // First user in the room (or any user, if the host is gone) becomes the host
+      if (!roomHosts[roomId] || !roomUsers[roomId].has(roomHosts[roomId])) {
+        roomHosts[roomId] = socket.id;
+        io.to(roomId).emit("video:host", { hostId: socket.id });
+      } else {
+        socket.emit("video:host", { hostId: roomHosts[roomId] });
+      }
+
+      // Bring the joiner up to date with what's playing
+      const videoState = currentVideoState(roomId);
+      if (videoState) socket.emit("video:state", videoState);
+      socket.emit("queue:update", { queue: videoQueues[roomId] ?? [] });
     });
 
     // ── SEND MESSAGE ───────────────────────────────────
@@ -69,6 +123,17 @@ export function registerSocketHandlers(io) {
       if (!roomId) return;
 
       roomUsers[roomId]?.delete(socket.id);
+
+      // Hand host over to the longest-present user if the host left
+      if (roomHosts[roomId] === socket.id) {
+        const nextHost = roomUsers[roomId]?.keys().next().value;
+        if (nextHost) {
+          roomHosts[roomId] = nextHost;
+          io.to(roomId).emit("video:host", { hostId: nextHost });
+        } else {
+          delete roomHosts[roomId];
+        }
+      }
       socket.to(roomId).emit("user:left", { username });
       io.to(roomId).emit("room:users", [
         ...(roomUsers[roomId]?.values() ?? []),
@@ -79,6 +144,8 @@ export function registerSocketHandlers(io) {
         delete roomUsers[roomId];
         delete canvasStates[roomId];
         delete videoStates[roomId];
+        delete roomHosts[roomId];
+        delete videoQueues[roomId];
       }
     });
 
@@ -111,80 +178,113 @@ export function registerSocketHandlers(io) {
       socket.to(roomId).emit("cursor:move", { x, y, username, color });
     });
 
-    // ── VIDEO EVENTS (UPDATED SYSTEM OF TRUTH) ───────────
-    socket.on("video:setUrl", ({ roomId, url }) => {
-      if (!roomId) return;
-      
-      videoStates[roomId] = {
-        url,
-        playing: false,
-        timestamp: 0,
-        lastUpdated: Date.now() // Track precisely WHEN this state was logged
-      };
-      
-      io.to(roomId).emit("video:setUrl", { url });
+    // ── VIDEO EVENTS ───────────────────────────────────
+    // The server is the source of truth: the room comes from socket.data (never the
+    // payload) and only the room's host may change playback.
+    function hostRoom() {
+      const roomId = socket.data?.roomId;
+      return roomId && roomHosts[roomId] === socket.id ? roomId : null;
+    }
+
+    // ── QUEUE ──────────────────────────────────────────
+    socket.on("queue:add", ({ url } = {}) => {
+      const roomId = hostRoom();
+      if (!roomId || !isValidUrl(url)) return;
+
+      const queue = (videoQueues[roomId] ??= []);
+      if (queue.length >= MAX_QUEUE_LENGTH) return;
+
+      const item = { id: randomUUID(), url };
+      queue.push(item);
+      io.to(roomId).emit("queue:update", { queue });
+
+      // Nothing playing yet: start this one straight away
+      if (!videoStates[roomId]) loadItem(io, roomId, item, false);
     });
 
-    socket.on("video:play", ({ roomId, timestamp }) => {
-      if (!roomId) return;
-      
-      videoStates[roomId] = {
-        url: videoStates[roomId]?.url || "",
+    socket.on("queue:remove", ({ id } = {}) => {
+      const roomId = hostRoom();
+      if (!roomId || !videoQueues[roomId]) return;
+
+      videoQueues[roomId] = videoQueues[roomId].filter((item) => item.id !== id);
+      io.to(roomId).emit("queue:update", { queue: videoQueues[roomId] });
+    });
+
+    socket.on("queue:play", ({ id } = {}) => {
+      const roomId = hostRoom();
+      const item = roomId && videoQueues[roomId]?.find((q) => q.id === id);
+      if (!item) return;
+      loadItem(io, roomId, item, true);
+    });
+
+    // Sent by the host when the current video ends
+    socket.on("queue:next", () => {
+      const roomId = hostRoom();
+      const queue = roomId && videoQueues[roomId];
+      if (!queue) return;
+
+      const index = queue.findIndex((item) => item.id === videoStates[roomId]?.itemId);
+      const next = queue[index + 1];
+      if (next) loadItem(io, roomId, next, true);
+    });
+
+    socket.on("video:play", ({ timestamp } = {}) => {
+      const roomId = hostRoom();
+      if (!roomId || !videoStates[roomId] || !isValidTime(timestamp)) return;
+
+      Object.assign(videoStates[roomId], {
         playing: true,
-        timestamp: timestamp,
-        lastUpdated: Date.now()
-      };
-      
+        timestamp,
+        lastUpdated: Date.now(),
+      });
+
       socket.to(roomId).emit("video:play", { timestamp });
     });
 
-    socket.on("video:pause", ({ roomId, timestamp }) => {
-      if (!roomId) return;
-      
-      videoStates[roomId] = {
-        url: videoStates[roomId]?.url || "",
+    socket.on("video:pause", ({ timestamp } = {}) => {
+      const roomId = hostRoom();
+      if (!roomId || !videoStates[roomId] || !isValidTime(timestamp)) return;
+
+      Object.assign(videoStates[roomId], {
         playing: false,
-        timestamp: timestamp,
-        lastUpdated: Date.now()
-      };
-      
+        timestamp,
+        lastUpdated: Date.now(),
+      });
+
       socket.to(roomId).emit("video:pause", { timestamp });
     });
 
-    socket.on("video:seek", ({ roomId, timestamp }) => {
-      if (!roomId) return;
-      if (videoStates[roomId]) {
-        videoStates[roomId].timestamp = timestamp;
-        videoStates[roomId].lastUpdated = Date.now();
-      }
+    socket.on("video:seek", ({ timestamp } = {}) => {
+      const roomId = hostRoom();
+      if (!roomId || !videoStates[roomId] || !isValidTime(timestamp)) return;
+
+      Object.assign(videoStates[roomId], { timestamp, lastUpdated: Date.now() });
+
       socket.to(roomId).emit("video:seek", { timestamp });
     });
 
-    socket.on("video:sync", ({ roomId, timestamp, playing }) => {
-      if (!roomId) return;
-      // Host heartbeat logs updates directly to the server cache
-      if (videoStates[roomId]) {
-        videoStates[roomId].timestamp = timestamp;
-        videoStates[roomId].playing = playing;
-        videoStates[roomId].lastUpdated = Date.now();
-      }
-      socket.to(roomId).emit("video:sync", { timestamp, playing });
+    // Host heartbeat: refreshes the server's copy and lets viewers correct drift
+    socket.on("video:sync", ({ timestamp, playing } = {}) => {
+      const roomId = hostRoom();
+      if (!roomId || !videoStates[roomId] || !isValidTime(timestamp)) return;
+
+      Object.assign(videoStates[roomId], {
+        timestamp,
+        playing: !!playing,
+        lastUpdated: Date.now(),
+      });
+
+      socket.to(roomId).emit("video:sync", { timestamp, playing: !!playing });
     });
 
-    socket.on("video:requestState", ({ roomId }) => {
-      if (!roomId || !videoStates[roomId]) return;
+    socket.on("video:requestState", () => {
+      const roomId = socket.data?.roomId;
+      if (!roomId) return;
 
-      // Create a shallow copy of the state data structure
-      const state = { ...videoStates[roomId] };
-
-      // DYNAMIC ELAPSED TIME CALCULATION: 
-      // If the video is playing, add the real-world time elapsed since the server last heard from the host.
-      if (state.playing && state.lastUpdated) {
-        const elapsedRealTimeSeconds = (Date.now() - state.lastUpdated) / 1000;
-        state.timestamp += elapsedRealTimeSeconds;
-      }
-
-      socket.emit("video:state", state);
+      socket.emit("video:host", { hostId: roomHosts[roomId] });
+      socket.emit("queue:update", { queue: videoQueues[roomId] ?? [] });
+      const state = currentVideoState(roomId);
+      if (state) socket.emit("video:state", state);
     });
   });
 }

@@ -28,9 +28,12 @@ export default function RoomPage() {
 
     setRoom(roomId)
     setMe(me)
-    socket.connect()
 
-    socket.emit('room:join', { roomId, ...me })
+    // Join on every (re)connect: after a dropped connection the server sees a brand new
+    // socket, so it has to be put back in the room to get host status, the queue and video state.
+    const joinRoom = () => socket.emit('room:join', { roomId, ...me })
+    socket.on('connect', joinRoom)
+    socket.connect()
 
     socket.on('room:history', setHistory)
     socket.on('message:receive', addMessage)
@@ -40,6 +43,7 @@ export default function RoomPage() {
     socket.on('typing:stop', ({ username }) => { removeTyping(username) })
 
     return () => {
+      socket.off('connect', joinRoom)
       socket.off('room:history')
       socket.off('message:receive')
       socket.off('room:users')
